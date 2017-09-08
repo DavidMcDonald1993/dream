@@ -10,6 +10,7 @@ from keras.objectives import binary_crossentropy, mean_squared_error
 import keras.backend as K
 import tensorflow as tf
 from keras_tqdm import TQDMNotebookCallback
+import xgboost as xgb
 
 # root mean squared error with three masks
 def rmse (original_data, y_pred, y_true): 
@@ -163,6 +164,17 @@ def pca_autoencoder(data, num_hidden=[32], dropout=0.1, pca_dim=64, **kwargs):
     
     return pca.inverse_transform(prediction)
 
+# regression based approach: xgboost
+def xgboost_regression(data, **kwargs):
+    data2 = data
+    for i in range(0,num_samples):
+        if np.count_nonzero(np.isnan(data[i,:])) > 0:
+            trainM = data[:,~np.isnan(data[i,:])]
+            targetM = data[:,np.isnan(data[i,:])]
+            xgb_model = xgb.XGBRegressor().fit(np.delete(trainM, (i), axis=0).transpose(),trainM[i,:].transpose())
+            pred = xgb_model.predict(np.delete(targetM, (i), axis=0).transpose())
+            data2[i,np.isnan(data[i,:])] = pred
+    return data2
 
 
 def main():
