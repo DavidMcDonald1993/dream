@@ -197,9 +197,9 @@ def main():
     num_proteins, num_features = ground_truth.shape
 
     # list of imputation tecniques
-#     imputation_methods = [sample_mean, knn_3, knn_5, soft_impute, iterative_SVD, mice,
-#                           modified_autoencoder, pca_autoencoder]
-    imputation_methods = [sample_mean]
+    imputation_methods = [sample_mean, knn_3, knn_5, soft_impute, iterative_SVD, mice,
+                           modified_autoencoder, pca_autoencoder]
+#    imputation_methods = [sample_mean]
     
     print "Computing rmse"
     

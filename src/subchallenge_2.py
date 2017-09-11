@@ -2,7 +2,7 @@
 from keras.layers import Input, Dense, Concatenate, Dropout, BatchNormalization, Activation
 from keras.models import Model
 from keras.regularizers import l2
-from keras_tqdm import TQDMNotebookCallback
+from keras.callbacks import EarlyStopping
 
 from fancyimpute import KNN
 
@@ -12,6 +12,8 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 from sklearn.metrics import mean_squared_error as mse
+
+from sklearn.linear_model import LinearRegression
 
 def preprocess_data():
     
@@ -71,6 +73,36 @@ def rmse (y_pred, y_true):
     # rsme prediction and ground truth
     return np.sqrt(mse(y_true, y_pred))
 
+# compute mean rmse across a number of repreats
+def mean_rmse(cna_training_data, rna_training_data, proteome_training_data, regression_method, num_repeats=1, **kwargs):
+    
+    abundance_predictions = [regression_method(cna_training_data, rna_training_data, proteome_training_data, **kwargs) 
+                             for i in range(num_repeats)]
+    
+    rmses = np.array([rmse(abundance_prediction, proteome_training_data) 
+                      for abundance_prediction in abundance_predictions])
+
+    return rmses.mean(axis=0)
+
+def linear_regression(cna_training_data, rna_training_data, proteome_training_data):
+    
+    print "Building linear model"
+    
+    linear_model = LinearRegression()
+    
+    print "Appending training matrices for linear model"
+    
+    # append data for linear regression
+    cna_rna_training_data_append = np.append(cna_training_data, rna_training_data, axis=1)
+    
+    print "Fitting linear model"
+    
+    linear_model.fit(cna_rna_training_data_append, proteome_training_data)
+    
+    abundance_predictions = linear_model.predict(cna_rna_training_data_append)
+    
+    return abundance_predictions
+
 # construct model
 def build_deep_regression_model(num_samples, num_hidden, dropout, activation, reg):
     
@@ -88,35 +120,25 @@ def build_deep_regression_model(num_samples, num_hidden, dropout, activation, re
 
     y = Dense(num_samples, kernel_regularizer=regulariser)(y)
 
-    regression_model = Model([cna, rna], y)
-    regression_model.compile(optimizer="adam", loss="mse")
+    deep_non_linear_regression_model = Model([cna, rna], y)
+    deep_non_linear_regression_model.compile(optimizer="adam", loss="mse")
     
-    return regression_model
+    return deep_non_linear_regression_model
 
-def main():
+def deep_non_linear_regression(cna_training_data, rna_training_data, proteome_training_data,
+                               num_hidden=[64], dropout=0.1, activation="relu", reg=1e-3):
     
-    print "Preprocessing data"
-
-    # get training data
-    cna_training_data, rna_training_data, proteome_training_data, cna_scaler, rna_scaler, proteome_scaler = preprocess_data()
-
+    print "Building deep non linear regression model"
+    
     # dimensionality of data
     num_proteins, num_samples = cna_training_data.shape
-    
-    print "Building regression model"
-    
-    # model parameters
-    num_hidden=[64]
-    dropout=0.1
-    activation="relu"
-    reg=1e-3
-    
+     
     # build model
     regression_model = build_deep_regression_model(num_samples, num_hidden, dropout, activation, reg)
 
     early_stopping = EarlyStopping(monitor="loss", patience=1000, min_delta=0, )
     
-    print "Training regression model"
+    print "Training deep non linear regression model"
 
     # train model
     regression_model.fit([cna_training_data, rna_training_data], proteome_training_data, 
@@ -126,19 +148,33 @@ def main():
     # protein abundance predictions
     abundance_predictions = regression_model.predict([cna_training_data, rna_training_data])
     
-    # compute rmse
-    abundance_rmse = rmse(abundance_predictions, proteome_training_data)
+    return abundance_predictions
+
+def main():
     
+    print "Preprocessing data"
+
+    # get training data
+    cna_training_data, rna_training_data, proteome_training_data, cna_scaler, rna_scaler, proteome_scaler = preprocess_data()
+    
+    #list of regression methods
+    regression_methods = [linear_regression, deep_non_linear_regression]
+    
+    # compute rmses
+    
+    print "Computing rmses"
+    rmses = np.array([mean_rmse(cna_training_data, rna_training_data, proteome_training_data,
+                                 regression_method, num_repeats=1) for regression_method in regression_methods])
+    
+    print "RMSES:"
+    print rmses
     
     # TODO: compare multiple methods and save to file
-#     fname = "../results/regression_model_num_hidden={}_dropout={}_activation={}_reg={}".format(num_hidden, 
-#                                                                                                dropout, activation, reg)
-#     print "Saving rmse to {}".format(fname)
+    fname = "../results/subchallenge_2/{}.csv".format(regression_methods) 
+    print "Saving rmses to {}".format(fname)
     
 #     # save to file
-#     np.savetxt(X=abundance_rmse, fname=fname)
-
-    print "rmse={}".format(abundance_rmse)
+    np.savetxt(X=rmses, fname=fname, delimiter=",")
 
 if __name__ == "__main__":
     main()
