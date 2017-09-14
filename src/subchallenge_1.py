@@ -7,10 +7,9 @@ from fancyimpute import SimpleFill, KNN, SoftImpute, IterativeSVD, MICE, MatrixF
 from keras.models import Model
 from keras.layers import Dense, Input, Dropout, BatchNormalization
 from keras.objectives import binary_crossentropy, mean_squared_error
+from keras.callbacks import EarlyStopping
 import keras.backend as K
 import tensorflow as tf
-from keras_tqdm import TQDMNotebookCallback
-import xgboost as xgb
 
 # root mean squared error with three masks
 def rmse (original_data, y_pred, y_true): 
@@ -63,18 +62,23 @@ def soft_impute(data, **kwargs):
     fill = SoftImpute(verbose=0)
     return fill.complete(data)
 
-# iterativeSVD from fancy impute package
-def iterative_SVD(data, **kwargs):
-    fill = IterativeSVD(verbose=0)
-    return fill.complete(data)
+# removing to focus on optimising soft impute
 
-# MICE for fancyimpute package
-def mice(data, **kwargs):
-    fill = MICE(verbose=0)
-    return fill.complete(data)
+# # iterativeSVD from fancy impute package
+# def iterative_SVD(data, **kwargs):
+#     fill = IterativeSVD(verbose=0)
+#     return fill.complete(data)
+
+# # MICE for fancyimpute package
+# def mice(data, **kwargs):
+#     fill = MICE(verbose=0)
+#     return fill.complete(data)
 
 # modified autoencoder that does not propagate error from missing values
 def modified_autoencoder(data, num_hidden=[32], dropout=0.1, **kwargs):
+    
+    # dimensionality of data
+    num_proteins, num_features = data.shape
     
     # to normalise the data we must impute 
     mean_imputer = SimpleFill(fill_method="mean")
@@ -89,7 +93,7 @@ def modified_autoencoder(data, num_hidden=[32], dropout=0.1, **kwargs):
     
     # maintain nan in target data so we know which outputs should not prodice any error
     data_scaled_with_nan = np.array([[data_imputed_and_scaled[i, j] if ~np.isnan(data[i, j]) else np.nan
-                                     for j in range(num_features)] for i in range(num_samples)])
+                                     for j in range(num_features)] for i in range(num_proteins)])
     
     # custom MSE that only produces error on non-nan terms
     def custom_MSE(y_true, y_pred):
@@ -124,7 +128,7 @@ def modified_autoencoder(data, num_hidden=[32], dropout=0.1, **kwargs):
     # output -- no activation function 
     y = Dense(num_features, activation="linear")(y)
     autoencoder = Model(x, y)
-    autoencoder.compile(optimizer="adam", loss=custom_binary_crossentropy)
+    autoencoder.compile(optimizer="adam", loss=custom_MSE)
     early_stopping = EarlyStopping(monitor="loss", patience=1000, min_delta=0)
     # train model
     autoencoder.fit(data_imputed_and_scaled, data_scaled_with_nan, 
@@ -137,6 +141,10 @@ def modified_autoencoder(data, num_hidden=[32], dropout=0.1, **kwargs):
 
 # PCA and then autoencoder
 def pca_autoencoder(data, num_hidden=[32], dropout=0.1, pca_dim=64, **kwargs):
+    
+    
+    # dimensionality of data
+    num_proteins, num_features = data.shape
     
     #construct model
     x = Input(shape=(pca_dim,))
@@ -164,17 +172,6 @@ def pca_autoencoder(data, num_hidden=[32], dropout=0.1, pca_dim=64, **kwargs):
     
     return pca.inverse_transform(prediction)
 
-# regression based approach: xgboost
-def xgboost_regression(data, **kwargs):
-    data2 = data
-    for i in range(0,num_samples):
-        if np.count_nonzero(np.isnan(data[i,:])) > 0:
-            trainM = data[:,~np.isnan(data[i,:])]
-            targetM = data[:,np.isnan(data[i,:])]
-            xgb_model = xgb.XGBRegressor().fit(np.delete(trainM, (i), axis=0).transpose(),trainM[i,:].transpose())
-            pred = xgb_model.predict(np.delete(targetM, (i), axis=0).transpose())
-            data2[i,np.isnan(data[i,:])] = pred
-    return data2
 
 
 def main():
@@ -193,13 +190,10 @@ def main():
     datas = [df.values for df in dfs]
     ground_truth = ground_truth_table.values
 
-    # dimensionality of data
-    num_proteins, num_features = ground_truth.shape
-
     # list of imputation tecniques
-    imputation_methods = [sample_mean, knn_3, knn_5, soft_impute, iterative_SVD, mice,
-                           modified_autoencoder, pca_autoencoder]
-#    imputation_methods = [sample_mean]
+    imputation_methods = [sample_mean, knn_3, knn_5, soft_impute, 
+                          modified_autoencoder, pca_autoencoder]
+#     imputation_methods = [sample_mean]
     
     print "Computing rmse"
     
