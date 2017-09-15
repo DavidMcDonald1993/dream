@@ -194,6 +194,8 @@ def main():
     imputation_methods = [sample_mean, knn_3, knn_5, soft_impute, 
                           modified_autoencoder, pca_autoencoder]
 #     imputation_methods = [sample_mean]
+    imputation_method_names = ["sample_mean", "knn_3", "knn_5", "soft_impute", 
+                          "modified_autoencoder", "pca_autoencoder"]
     
     print "Computing rmse"
     
@@ -205,11 +207,11 @@ def main():
     
     # save to file
     np.savetxt(X=rmses[:,:,0], 
-               fname="../results/subchallenge_1/{}_rmses_no_mask.csv".format(imputation_methods), delimiter=",")
+               fname="../results/subchallenge_1/{}_rmses_no_mask.csv".format(imputation_method_names), delimiter=",")
     np.savetxt(X=rmses[:,:,1], 
-               fname="../results/subchallenge_1/{}_rmses_ignore_zeros.csv".format(imputation_methods), delimiter=",")
+               fname="../results/subchallenge_1/{}_rmses_ignore_zeros.csv".format(imputation_method_names), delimiter=",")
     np.savetxt(X=rmses[:,:,2], 
-               fname="../results/subchallenge_1/{}_rmses_only_nan_ignore_zeros.csv".format(imputation_methods), 
+               fname="../results/subchallenge_1/{}_rmses_only_nan_ignore_zeros.csv".format(imputation_method_names), 
                delimiter=",")
     
 
