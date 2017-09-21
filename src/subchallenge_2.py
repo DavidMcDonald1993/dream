@@ -16,6 +16,8 @@ from sklearn.metrics import mean_squared_error as mse
 
 from sklearn.linear_model import LinearRegression, Lasso, ElasticNet, BayesianRidge
 
+from sklearn.ensemble import AdaBoostRegressor
+
 import xgboost as xgb
 
 def preprocess_data(holdout=0.2):
