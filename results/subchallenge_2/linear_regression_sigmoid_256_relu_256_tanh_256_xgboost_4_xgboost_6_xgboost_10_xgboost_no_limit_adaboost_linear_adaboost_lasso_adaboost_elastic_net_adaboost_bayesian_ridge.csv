@@ -1,0 +1,13 @@
+,0
+linear_regression,0.815195047539
+sigmoid_256,1.00065065697
+relu_256,0.988324176145
+tanh_256,1.36924023039
+xgboost_4,0.895370240082
+xgboost_6,0.89486128624
+xgboost_10,0.896836267966
+xgboost_no_limit,1.01897954598
+adaboost_linear,0.925125989739
+adaboost_lasso,1.00366256002
+adaboost_elastic_net,1.01468102441
+adaboost_bayesian_ridge,0.927045217212

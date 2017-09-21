@@ -1,4 +1,5 @@
-# regression model
+from functools import partial
+
 from keras.layers import Input, Dense, Concatenate, Dropout, BatchNormalization, Activation
 from keras.models import Model
 from keras.regularizers import l2
@@ -13,9 +14,11 @@ from sklearn.preprocessing import StandardScaler
 
 from sklearn.metrics import mean_squared_error as mse
 
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, Lasso, ElasticNet, BayesianRidge
 
-def preprocess_data():
+import xgboost as xgb
+
+def preprocess_data(holdout=0.2):
     
     # import data for breast cancer datasets
     cna_data_frame = pd.read_csv("../data/sub_challenge_2_3/breast_cancer_dataset/retrospective_breast_CNA_median_sort_common_gene_16884.txt", 
@@ -51,40 +54,54 @@ def preprocess_data():
     complete_proteins = proteins[~(np.isnan(proteome_data).any(axis=1))]
     missing_value_proteins = proteins[np.isnan(proteome_data).any(axis=1)]
 
-    # use complete data as training data
-    cna_training_data = cna_data_frame.loc[complete_proteins, patients].values
-    rna_training_data = rna_data_frame.loc[complete_proteins, patients].values
-    proteome_training_data = proteome_data_frame.loc[complete_proteins, patients].values
+    # use complete data as training/validation data
+    cna_data = cna_data_frame.loc[complete_proteins, patients].values
+    rna_data = rna_data_frame.loc[complete_proteins, patients].values
+    proteome_data = proteome_data_frame.loc[complete_proteins, patients].values
 
     # standard scaling
     cna_scaler = StandardScaler()
     rna_scaler = StandardScaler()
     proteome_scaler = StandardScaler()
 
-    cna_training_data = cna_scaler.fit_transform(cna_training_data)
-    rna_training_data = rna_scaler.fit_transform(rna_training_data)
-    proteome_training_data = proteome_scaler.fit_transform(proteome_training_data)
+    cna_data = cna_scaler.fit_transform(cna_data)
+    rna_data = rna_scaler.fit_transform(rna_data)
+    proteome_data = proteome_scaler.fit_transform(proteome_data)
     
+    # mask of training/validation data
+    mask = np.random.rand(cna_data.shape[0]) < holdout
+    
+    cna_training_data = cna_data[~mask]
+    rna_training_data = rna_data[~mask]
+    proteome_training_data = proteome_data[~mask]
+    
+    cna_validation_data = cna_data[mask]
+    rna_validation_data = rna_data[mask]
+    proteome_validation_data = proteome_data[mask]
     
     # return training data scalers for inverse scaling
-    return cna_training_data, rna_training_data, proteome_training_data, cna_scaler, rna_scaler, proteome_scaler
+    return cna_training_data, rna_training_data, proteome_training_data, cna_validation_data, rna_validation_data, proteome_validation_data, cna_scaler, rna_scaler, proteome_scaler
 
 def rmse (y_pred, y_true): 
     # rsme prediction and ground truth
     return np.sqrt(mse(y_true, y_pred))
 
 # compute mean rmse across a number of repreats
-def mean_rmse(cna_training_data, rna_training_data, proteome_training_data, regression_method, num_repeats=1, **kwargs):
+def mean_rmse(cna_training_data, rna_training_data, proteome_training_data, 
+            cna_validation_data, rna_validation_data, proteome_validation_data,
+              regression_method, num_repeats=1, **kwargs):
     
-    abundance_predictions = [regression_method(cna_training_data, rna_training_data, proteome_training_data, **kwargs) 
+    abundance_predictions = [regression_method(cna_training_data, rna_training_data, proteome_training_data, 
+                                               cna_validation_data, rna_validation_data, **kwargs) 
                              for i in range(num_repeats)]
     
-    rmses = np.array([rmse(abundance_prediction, proteome_training_data) 
+    rmses = np.array([rmse(abundance_prediction, proteome_validation_data) 
                       for abundance_prediction in abundance_predictions])
 
     return rmses.mean(axis=0)
 
-def linear_regression(cna_training_data, rna_training_data, proteome_training_data):
+def linear_regression(cna_training_data, rna_training_data, proteome_training_data, 
+                                         cna_validation_data, rna_validation_data,**kwargs):
     
     print "Building linear model"
     
@@ -99,7 +116,10 @@ def linear_regression(cna_training_data, rna_training_data, proteome_training_da
     
     linear_model.fit(cna_rna_training_data_append, proteome_training_data)
     
-    abundance_predictions = linear_model.predict(cna_rna_training_data_append)
+    # predictions
+    cna_rna_validation_data_append = np.append(cna_validation_data, rna_validation_data, axis=1)
+    
+    abundance_predictions = linear_model.predict(cna_rna_validation_data_append)
     
     return abundance_predictions
 
@@ -126,7 +146,8 @@ def build_deep_regression_model(num_samples, num_hidden, dropout, activation, re
     return deep_non_linear_regression_model
 
 def deep_non_linear_regression(cna_training_data, rna_training_data, proteome_training_data,
-                               num_hidden=[64], dropout=0.1, activation="relu", reg=1e-3):
+                               cna_validation_data, rna_validation_data,
+                               num_hidden=[128], dropout=0.1, activation="relu", reg=1e-3, **kwargs):
     
     print "Building deep non linear regression model"
     
@@ -146,35 +167,130 @@ def deep_non_linear_regression(cna_training_data, rna_training_data, proteome_tr
                          callbacks=[early_stopping])
 
     # protein abundance predictions
-    abundance_predictions = regression_model.predict([cna_training_data, rna_training_data])
+    abundance_predictions = regression_model.predict([cna_validation_data, rna_validation_data])
     
     return abundance_predictions
+
+def xgboost(cna_training_data, rna_training_data, proteome_training_data, 
+            cna_validation_data, rna_validation_data,**kwargs):
+    
+    print "Reshaping training matrices for xgboost"
+    
+    # reshape to columns because xgboost regression can only have single numbers as labels
+    cna_training_data_shaped = cna_training_data.reshape(-1, 1)
+    rna_training_data_shaped = rna_training_data.reshape(-1, 1)
+    proteome_training_data_shaped = proteome_training_data.reshape(-1, 1)
+    
+    # append cna and rna data
+    cna_rna_training_data_append = np.append(cna_training_data_shaped, rna_training_data_shaped, axis=1)
+    
+    # construct training data matrix
+    dtrain = xgb.DMatrix(cna_rna_training_data_append, label=proteome_training_data_shaped)
+    
+    print "Training xgboost"
+    
+    # train using default parameters
+    bst = xgb.train(dtrain=dtrain, **kwargs)
+    
+    # abundance predicitions 
+    cna_validation_data_shaped = cna_validation_data.reshape(-1, 1)
+    rna_validation_data_shaped = rna_validation_data.reshape(-1, 1)
+    cna_rna_validation_data_append = np.append(cna_validation_data_shaped, rna_validation_data_shaped, axis=1)
+    dval = xgb.DMatrix(cna_rna_validation_data_append, label=proteome_training_data_shaped)
+    abundance_predictions = bst.predict(dval)
+    
+    return abundance_predictions.reshape(cna_validation_data.shape)
+
+def adaboost(cna_training_data, rna_training_data, proteome_training_data, 
+             cna_validation_data, rna_validation_data, base_regressor, **kwargs):
+    
+    if base_regressor == "linear":
+        regressor = LinearRegression()
+    elif base_regressor == "lasso":
+        regressor = Lasso()
+    elif base_regressor == "elastic_net":
+        regressor = ElasticNet()
+    elif base_regressor == "bayesian_ridge":
+        regressor = BayesianRidge()
+        
+    # reshape to columns because xgboost regression can only have single numbers as labels
+    cna_training_data_shaped = cna_training_data.reshape(-1, 1)
+    rna_training_data_shaped = rna_training_data.reshape(-1, 1)
+    proteome_training_data_shaped = proteome_training_data.reshape(-1, )
+
+    # append cna and rna data
+    cna_rna_training_data_append = np.append(cna_training_data_shaped, rna_training_data_shaped, axis=1)    
+    
+    # adabosst object
+    adaboost = AdaBoostRegressor(base_estimator=regressor)
+    
+    print "fitting adaboost with {}".format(base_regressor)
+    
+    adaboost.fit(cna_rna_training_data_append, proteome_training_data_shaped)
+    
+    print "predicting"
+    
+    cna_validation_data_shaped = cna_validation_data.reshape(-1, 1)
+    rna_validation_data_shaped = rna_validation_data.reshape(-1, 1)
+    cna_rna_validation_data_append = np.append(cna_validation_data_shaped, rna_validation_data_shaped, axis=1)
+    
+    abundance_predictions = adaboost.predict(cna_rna_validation_data_append)
+    
+    return abundance_predictions.reshape(cna_validation_data.shape)
 
 def main():
     
     print "Preprocessing data"
 
     # get training data
-    cna_training_data, rna_training_data, proteome_training_data, cna_scaler, rna_scaler, proteome_scaler = preprocess_data()
+    cna_training_data, rna_training_data, proteome_training_data, \
+    cna_validation_data, rna_validation_data, proteome_validation_data, \
+    cna_scaler, rna_scaler, proteome_scaler = preprocess_data()
+    
+    # different deep architechitures
+    deep_1 = partial(deep_non_linear_regression, activation="sigmoid", num_hidden=[256])
+    deep_2 = partial(deep_non_linear_regression, activation="relu", num_hidden=[256])
+    deep_3 = partial(deep_non_linear_regression, activation="tanh", num_hidden=[256])
+    
+    # different xgboost parameters
+    xgboost_4 = partial(xgboost, params={"max_depth" : 4})
+    xgboost_6 = partial(xgboost, params={"max_depth" : 6})
+    xgboost_10 = partial(xgboost, params={"max_depth" : 10})
+    xgboost_0 = partial(xgboost, params={"max_depth" : 0})
+    
+    # adaboost with different base estimators
+    adaboost_linear = partial(adaboost, base_regressor="linear")
+    adaboost_lasso = partial(adaboost, base_regressor="lasso")
+    adaboost_elastic_net = partial(adaboost, base_regressor="elastic_net")
+    adaboost_bayesian_ridge = partial(adaboost, base_regressor="bayesian_ridge")
     
     #list of regression methods
-    regression_methods = [linear_regression, deep_non_linear_regression]
+    regression_methods = [linear_regression, deep_1, deep_2, deep_3,
+                          xgboost_4, xgboost_6, xgboost_10, xgboost_0,
+                         adaboost_linear, adaboost_lasso, adaboost_elastic_net, adaboost_bayesian_ridge]
+    regression_method_names = ["linear_regression", "sigmoid_256", "relu_256", "tanh_256",
+                               "xgboost_4", "xgboost_6", "xgboost_10", "xgboost_no_limit",
+                              "adaboost_linear", "adaboost_lasso", "adaboost_elastic_net", "adaboost_bayesian_ridge"]
     
     # compute rmses
     
     print "Computing rmses"
     rmses = np.array([mean_rmse(cna_training_data, rna_training_data, proteome_training_data,
+                                cna_validation_data, rna_validation_data, proteome_validation_data,
                                  regression_method, num_repeats=1) for regression_method in regression_methods])
+        
+    # convert to data frame
+    rmses = pd.DataFrame(rmses, index=regression_method_names)
     
     print "RMSES:"
     print rmses
     
     # TODO: compare multiple methods and save to file
-    fname = "../results/subchallenge_2/{}.csv".format(regression_methods) 
+    fname = "../results/subchallenge_2/{}.csv".format("_".join(regression_method_names))
     print "Saving rmses to {}".format(fname)
     
-#     # save to file
-    np.savetxt(X=rmses, fname=fname, delimiter=",")
+    # save to file
+    rmses.to_csv(fname)
 
 if __name__ == "__main__":
     main()
