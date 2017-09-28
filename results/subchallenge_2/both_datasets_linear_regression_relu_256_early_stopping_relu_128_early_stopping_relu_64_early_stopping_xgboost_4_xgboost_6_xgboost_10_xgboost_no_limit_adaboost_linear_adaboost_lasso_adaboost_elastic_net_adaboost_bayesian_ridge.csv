@@ -1,0 +1,13 @@
+,0
+linear_regression,0.853117017058
+relu_256_early_stopping,0.874236993579
+relu_128_early_stopping,0.882557131255
+relu_64_early_stopping,0.89324358162
+xgboost_4,0.863593212568
+xgboost_6,0.863838694297
+xgboost_10,0.866353448407
+xgboost_no_limit,0.992473923466
+adaboost_linear,0.884520468448
+adaboost_lasso,0.980347071721
+adaboost_elastic_net,0.925578534511
+adaboost_bayesian_ridge,0.883746570244

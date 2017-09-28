@@ -1,0 +1,5 @@
+,0
+linear_regression,0.802677492265
+relu_1e-8_early_stopping,0.903093443696
+relu_1e-2_early_stopping,0.856551814205
+relu_1e-1_early_stopping,0.909793778313

@@ -1,12 +1,22 @@
-FROM python:2
+FROM ubuntu:16.04
+MAINTAINER David McDonald "dxm237@cs.bham.ac.uk"
 
-ADD subchallenge_1.py data_obs_1.txt data_obs_2.txt data_obs_3.txt data_obs_4.txt data_obs_5.txt data_obs_6.txt data_obs_7.txt data_obs_8.txt data_obs_9.txt data_obs_10.txt data_true.txt ./
+## dependences
+RUN apt-get update
+RUN apt-get -y install python python-pip
 
+# make data and output directories
+RUN mkdir /evaluation_data
+RUN mkdir /output
+
+## python packages
+RUN pip install --upgrade pip
 RUN pip install numpy 
-RUN pip install pandas 
-RUN pip install scikit-learn 
+RUN pip install pandas  
 RUN pip install fancyimpute 
-RUN pip install tensorflow 
-RUN pip install keras
 
-CMD [ "python", "./subchallenge_1.py" ]
+# add files
+ADD subchallenge_1_submission.py /subchallenge_1.py
+ADD score_sc1.sh /score_sc1.sh
+
+CMD [ "./score_sc1.sh" ]

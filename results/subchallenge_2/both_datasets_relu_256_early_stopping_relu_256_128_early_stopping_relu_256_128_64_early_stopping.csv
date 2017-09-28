@@ -1,0 +1,4 @@
+,0
+relu_256_early_stopping,0.852456814972
+relu_256_128_early_stopping,0.848145661349
+relu_256_128_64_early_stopping,0.890262973247

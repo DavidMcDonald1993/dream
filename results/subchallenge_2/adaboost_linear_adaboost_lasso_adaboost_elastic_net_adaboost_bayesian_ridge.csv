@@ -1,0 +1,5 @@
+,0
+adaboost_linear,0.931120893249
+adaboost_lasso,1.00118612925
+adaboost_elastic_net,0.961036449759
+adaboost_bayesian_ridge,0.931254298437
